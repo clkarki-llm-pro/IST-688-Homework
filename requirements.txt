@@ -1,3 +1,4 @@
 streamlit
 openai
 pymupdf
+beautifulsoup4
