@@ -17,7 +17,7 @@ def read_url_content(url):
 # Show title and description.
 st.title("My Document question answering")
 st.write(
-    "Paste a URL below and ask a question about it – GPT will answer! "
+    "Paste a URL below and ask a question about it. "
 )
 
 # Ask user for their OpenAI API key via `st.text_input`.
@@ -52,12 +52,25 @@ else:
             ("English", "Spanish", "Nepali"),
         )
 
-    use_advanced_model = st.sidebar.checkbox("Use advanced model")
-    model = "gpt-5-nano" if use_advanced_model else "gpt-3.5-turbo"
+    provider = st.sidebar.selectbox(
+        "Which LLM?",
+        ("OpenAI", "Google Gemini"),
+    )
 
-    # Validate the key right away by making a test call.
-    # This catches a bad/fake key immediately, instead of waiting
-    # until the user has uploaded a document and asked a question.
+    use_advanced_model = st.sidebar.checkbox("Use advanced model")
+
+    if provider == "OpenAI":
+        api_key = st.secrets.get("OPENAI_API_KEY", "")
+        model = "gpt-5" if use_advanced_model else "gpt-5-nano"
+    else:
+        api_key = st.secrets.get("GEMINI_API_KEY", "")
+        model = "gemini-3.6-flash" if use_advanced_model else "gemini-3.5-flash-lite"
+
+    if provider == "OpenAI":
+        client = OpenAI(api_key=api_key)
+    else:
+        client = genai.Client(api_key=api_key)
+
     try:
         client.models.list()
     except Exception:
@@ -88,12 +101,22 @@ else:
             }
         ]
 
-        # Generate an answer using the OpenAI API.
-        stream = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            stream=True,
-        )
+        if provider == "OpenAI":
+            stream = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                stream=True,
+            )
+            st.write_stream(stream)
+        else:
+            prompt = messages[0]["content"]
 
-        # Stream the response to the app using `st.write_stream`.
-        st.write_stream(stream)
+            def gemini_stream():
+                for chunk in client.models.generate_content_stream(
+                    model=model, contents=prompt
+                ):
+                    if chunk.text:
+                        yield chunk.text
+
+            st.write_stream(gemini_stream())
+
