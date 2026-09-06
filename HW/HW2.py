@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 from bs4 import BeautifulSoup
 from openai import OpenAI
+from google import genai
 
 def read_url_content(url):
     try:

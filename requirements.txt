@@ -2,3 +2,4 @@ streamlit
 openai
 pymupdf
 beautifulsoup4
+google-genai
