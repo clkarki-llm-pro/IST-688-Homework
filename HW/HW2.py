@@ -46,6 +46,11 @@ else:
     }
     instruction = instruction_map[summary_type]
 
+    language = st.sidebar.selectbox(
+            "Output language",
+            ("English", "Spanish", "Nepali"),
+        )
+
     use_advanced_model = st.sidebar.checkbox("Use advanced model")
     model = "gpt-5-nano" if use_advanced_model else "gpt-3.5-turbo"
 
@@ -74,7 +79,11 @@ else:
         messages = [
             {
                 "role": "user",
-                "content": f"Here's a document: {document} \n\n---\n\n {instruction}",
+                "content": (
+                    f"Here's a document: {document}\n\n---\n\n{instruction}\n\n"
+                    f"Write your entire response in {language}. "
+                    f"Do not include any text in any other language."
+                ),
             }
         ]
 
