@@ -1,5 +1,6 @@
 streamlit
 openai
 pymupdf
+requests
 beautifulsoup4
 google-genai
