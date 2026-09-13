@@ -59,7 +59,7 @@ st.write(
 
 MODEL_CHOICES = {
     "OpenAI - gpt-5.5": ("openai", "gpt-5.5"),
-    "Google - gemini-3.1-pro": ("google", "gemini-3.1-pro"),
+    "Google - gemini-3.6-flash": ("google", "gemini-3.6-flash"),
 }
 
 st.sidebar.header("Options")
