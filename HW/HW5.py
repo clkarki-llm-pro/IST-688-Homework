@@ -1,4 +1,6 @@
-#### TOOLS WE NEED ####
+# HW/HW5.py
+
+#### 1. TOOLS WE NEED ####
 import streamlit as st
 from openai import OpenAI
 import sys
@@ -13,29 +15,31 @@ sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 
 import chromadb
 
-#### SETTINGS ####
-# These are where the club pages live, where the database is saved, and which model to use
+
+#### 2. SETTINGS ####
+# Where the club pages live, where the database is saved, and which model to use
 BASE_DIR = Path(__file__).parent.parent
 HTML_FOLDER = BASE_DIR / 'HW-04-Data'
 CHROMA_PATH = str(BASE_DIR / 'ChromaDB_for_HW4')
 MODEL = 'gpt-5-mini'
 
-# Create OpenAI client
+# Create OpenAI client (only once, then reuse it)
 if 'openai_client' not in st.session_state:
     st.session_state.openai_client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-#### CHUNKING ####
-# doing the same semantic chunking as HW4 with 2 chuncks per page
-# chunks are split at the paragraph boundary nearest the midpoint
+
+#### 3. CUTTING A PAGE IN HALF ####
+# Same semantic chunking as HW 4: two chunks per page, split at the
+# paragraph boundary nearest the midpoint.
 def split_into_two_chunks(text):
     paragraphs = [p for p in text.split('\n\n') if p.strip()]
- 
+
     # If it's too short to split meaningfully, keep as one chunk
     if len(paragraphs) < 2:
         return [text]
- 
+
     midpoint = len(text) // 2
- 
+
     # Walk the paragraphs and cut at the boundary closest to the midpoint
     best_index = 1
     best_distance = None
@@ -46,43 +50,42 @@ def split_into_two_chunks(text):
         if best_distance is None or distance < best_distance:
             best_distance = distance
             best_index = i + 1
- 
+
     first = '\n\n'.join(paragraphs[:best_index]).strip()
     second = '\n\n'.join(paragraphs[best_index:]).strip()
     return [c for c in (first, second) if c]
 
 
-#### Extract text from HTML files | aka "Reading the words off a web page" ####
+#### 4. READING THE WORDS OFF A WEB PAGE ####
 def extract_text_from_html(html_path):
     with open(html_path, 'r', encoding='utf-8', errors='ignore') as f:
         soup = BeautifulSoup(f.read(), 'html.parser')
- 
+
     # Drop the parts of the page that are navigation or code, not content
     for tag in soup(['script', 'style', 'nav', 'header', 'footer']):
         tag.decompose()
- 
+
     text = soup.get_text(separator='\n')
- 
+
     # Collapse the blank-line noise that get_text leaves behind
     lines = [line.strip() for line in text.splitlines()]
     return '\n\n'.join(line for line in lines if line)
- 
 
-#### SAVING ONE PAGE'S CHUNKS INTO THE DATABASE #### 
-# A function that will add one document's chunks to the collection
+
+#### 5. SAVING ONE PAGE'S CHUNKS INTO THE DATABASE ####
 def add_documents_to_collection(collection, chunks, file_name):
     client = st.session_state.openai_client
- 
+
     # One embeddings call for both chunks
     response = client.embeddings.create(
         input=chunks,
         model='text-embedding-3-small'
     )
     embeddings = [item.embedding for item in response.data]
- 
+
     ids = [f'{file_name}_chunk{i + 1}' for i in range(len(chunks))]
     metadatas = [{'source': file_name, 'chunk': i + 1} for i in range(len(chunks))]
- 
+
     collection.add(
         documents=chunks,
         ids=ids,
@@ -90,15 +93,15 @@ def add_documents_to_collection(collection, chunks, file_name):
         metadatas=metadatas
     )
 
- 
-#### POPULATE COLLECTION WITH HTML PAGES ####
+
+#### 6. FILLING THE DATABASE WITH ALL THE PAGES ####
 def load_html_to_collection(folder_path, collection):
     folder = Path(folder_path)
- 
+
     if not folder.is_dir():
         st.error(f'Could not find the folder {folder_path}')
         return 0
- 
+
     html_files = sorted(folder.glob('*.html')) + sorted(folder.glob('*.htm'))
     loaded = 0
     for html_file in html_files:
@@ -108,43 +111,45 @@ def load_html_to_collection(folder_path, collection):
             continue
         chunks = split_into_two_chunks(text)
 
-        # Put the club's name (the first line of the page) at the start of each chunk
+        # Put the club's name (the first line of the page) at the start
+        # of every chunk, so the second chunk can be matched to the club too
         club_name = text.split('\n\n')[0]
         chunks = [f'{club_name}\n\n{chunk}' for chunk in chunks]
-        
+
         add_documents_to_collection(collection, chunks, html_file.name)
         loaded += 1
     return loaded
- 
 
-#### OPENING THE DATABASE (AND BUILDING IT THE FIRST TIME) ####
+
+#### 7. OPENING THE DATABASE (AND BUILDING IT THE FIRST TIME) ####
 if 'HW5_VectorDB' not in st.session_state:
     chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
+
     # HW 5 has its own collection, so HW 4's database stays untouched
     collection = chroma_client.get_or_create_collection(name='HW5Collection')
- 
-    # Only build the DB the first time - on later runs the persisted
+
+    # Only build the DB the first time - on later runs the saved
     # collection already has the documents and this block is skipped
     if collection.count() == 0:
         with st.spinner('Building the vector database (first run only)...'):
             loaded = load_html_to_collection(HTML_FOLDER, collection)
         st.success(f'Loaded {loaded} pages into the vector database.')
- 
-    st.session_state.HW5_VectorDB = collection
- 
-collection = st.session_state.HW5_VectorDB
- 
 
-#### MAIN APP ####
+    st.session_state.HW5_VectorDB = collection
+
+collection = st.session_state.HW5_VectorDB
+
+
+#### 8. PAGE TITLE ####
 st.title('HW 5: Smarter Student Organizations Chatbot')
 st.caption(
     'This bot decides for itself when to search the student organization pages '
     'and what to search for, so follow-up questions like "how do I join it?" work.'
-) 
+)
 
 
-#### THE SEARCH TOOL ####
-# The LLM calls this with a query it writes itself. We embed the query,
+#### 9. THE SEARCH TOOL ####
+# The LLM calls this with a query it writes itself. We embed that query,
 # search ChromaDB, and return the matching page text.
 def relevant_club_info(query):
     client = st.session_state.openai_client
@@ -170,7 +175,7 @@ def relevant_club_info(query):
     return extra_info, ids
 
 
-#### THE TOOL'S INSTRUCTION CARD ####
+#### 10. THE TOOL'S INSTRUCTION CARD ####
 # The LLM reads this to decide when and how to call the tool
 TOOLS = [
     {
@@ -201,7 +206,8 @@ TOOLS = [
 ]
 
 
-#### THE BOT'S RULES ####
+#### 11. THE BOT'S RULES ####
+# 11a. Rules for the first call: when to search and how to write the query
 SYSTEM_PROMPT = (
     'You are an assistant that answers questions about student '
     'organizations at the Syracuse iSchool.\n\n'
@@ -211,15 +217,26 @@ SYSTEM_PROMPT = (
     '- Write the query as a standalone search phrase. If the user refers back to '
     'something earlier ("it", "that club"), use the conversation to fill in the name.\n'
     '- Do not call the tool for greetings, thanks, or small talk. Just reply normally.\n'
+    '- Do not make up organization names, officers, meeting times, or contacts.'
+)
+
+# 11b. Rules for the second call: answer from the pages the search found
+# (same rules as HW 4 - the pages get added to the end)
+ANSWER_PROMPT = (
+    'You are an assistant that answers questions about student '
+    'organizations at the Syracuse iSchool. '
+    'Use the pages below to answer the question.\n\n'
+    'Rules:\n'
     '- When you use the pages, start your answer with '
     '"Based on the student organization pages:" and name the page(s) you used.\n'
     '- If the pages do not answer the question, say so, then start with '
     '"Answering from general knowledge:" before continuing.\n'
-    '- Do not make up organization names, officers, meeting times, or contacts.'
+    '- Do not make up organization names, officers, meeting times, or contacts.\n\n'
+    'Pages:\n'
 )
 
 
-#### THE "HOW I FOUND THIS" BOX ####
+#### 12. THE "HOW I FOUND THIS" BOX ####
 # Shows what the bot searched for and which pages came back
 def show_searches(searches):
     with st.expander('How I found this'):
@@ -228,7 +245,7 @@ def show_searches(searches):
             st.markdown('**Pages:** ' + ', '.join(search['sources']))
 
 
-#### SHOWING THE CHAT SO FAR ####
+#### 13. SHOWING THE CHAT SO FAR ####
 if 'HW5_messages' not in st.session_state:
     st.session_state.HW5_messages = [
         {'role': 'assistant',
@@ -242,16 +259,16 @@ for msg in st.session_state.HW5_messages:
             show_searches(msg['searches'])
 
 
-#### WHEN THE USER ASKS SOMETHING ####
+#### 14. WHEN THE USER ASKS SOMETHING ####
 if prompt := st.chat_input('What would you like to know?'):
 
-    # Show the user's question and remember it
+    # 14a. Show the user's question and remember it
     st.session_state.HW5_messages.append({'role': 'user', 'content': prompt})
 
     with st.chat_message('user'):
         st.markdown(prompt)
 
-    # Short-term memory: the last 5 interactions (10 messages).
+    # 14b. Short-term memory: the last 5 interactions (10 messages).
     # Only role and content are sent - the 'searches' key is just for
     # display, and the API rejects keys it doesn't recognize
     buffer = [
@@ -261,18 +278,17 @@ if prompt := st.chat_input('What would you like to know?'):
     while buffer and buffer[0]['role'] == 'assistant':
         buffer = buffer[1:]
 
-    messages = [{'role': 'system', 'content': SYSTEM_PROMPT}] + buffer
     searches = []
     client = st.session_state.openai_client
 
     with st.chat_message('assistant'):
         try:
-            # First call: the LLM decides whether to search and writes the query.
+            # 14c. First call: the LLM decides whether to search and writes the query.
             # Not streamed, because we need the whole reply to see if it's a tool call
             with st.spinner('Thinking...'):
                 first = client.chat.completions.create(
                     model=MODEL,
-                    messages=messages,
+                    messages=[{'role': 'system', 'content': SYSTEM_PROMPT}] + buffer,
                     tools=TOOLS,
                     tool_choice='auto',
                 )
@@ -283,24 +299,8 @@ if prompt := st.chat_input('What would you like to know?'):
                 response = reply.content or "Sorry, I didn't get a response. Please try again."
                 st.markdown(response)
             else:
-                # Record the LLM's tool request so the second call can see it
-                messages.append({
-                    'role': 'assistant',
-                    'content': reply.content,
-                    'tool_calls': [
-                        {
-                            'id': tool_call.id,
-                            'type': 'function',
-                            'function': {
-                                'name': tool_call.function.name,
-                                'arguments': tool_call.function.arguments,
-                            },
-                        }
-                        for tool_call in reply.tool_calls
-                    ],
-                })
-
-                # Run the search for each tool call and hand back the results
+                # 14d. Run the search with the query the LLM wrote
+                pages = ''
                 for tool_call in reply.tool_calls:
                     try:
                         query = json.loads(tool_call.function.arguments).get('query') or prompt
@@ -311,19 +311,13 @@ if prompt := st.chat_input('What would you like to know?'):
                         extra_info, source_ids = relevant_club_info(query)
 
                     searches.append({'query': query, 'sources': source_ids})
-                    messages.append({
-                        'role': 'tool',
-                        'tool_call_id': tool_call.id,
-                        'content': extra_info,
-                    })
+                    pages += extra_info
 
-                # Second call: answer using the search results.
-                # tool_choice='none' means the LLM cannot call the tool again
+                # 14e. Second call: put the pages in the system prompt, like HW 4.
+                # No tools are passed, so the LLM cannot call the function again
                 stream = client.chat.completions.create(
                     model=MODEL,
-                    messages=messages,
-                    tools=TOOLS,
-                    tool_choice='none',
+                    messages=[{'role': 'system', 'content': ANSWER_PROMPT + pages}] + buffer,
                     stream=True,
                 )
                 response = st.write_stream(stream)
@@ -333,7 +327,7 @@ if prompt := st.chat_input('What would you like to know?'):
             response = f'Sorry, something went wrong: {e}'
             st.error(response)
 
-    # Remember the bot's answer for next time
+    # 14f. Remember the bot's answer for next time
     st.session_state.HW5_messages.append(
         {'role': 'assistant', 'content': response, 'searches': searches}
     )
